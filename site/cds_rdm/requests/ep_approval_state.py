@@ -29,7 +29,9 @@ def _get_parent_ep_approval(record):
     Returns the dict or {} if not set / record not available.
     """
     try:
-        return (record._record.parent.get("permission_flags") or {}).get("ep_approval") or {}
+        return (record._record.parent.get("permission_flags") or {}).get(
+            "ep_approval"
+        ) or {}
     except Exception:
         return {}
 
@@ -57,7 +59,9 @@ def _get_open_request(record_id, parent_record=None):
         else:
             recids = [record_id]
 
-        topic_query = " OR ".join(f'topic.record:"{r}"' for r in (recids or [record_id]))
+        topic_query = " OR ".join(
+            f'topic.record:"{r}"' for r in (recids or [record_id])
+        )
         results = current_requests_service.search(
             system_identity,
             params={
@@ -82,7 +86,7 @@ def _get_open_request(record_id, parent_record=None):
         return None
 
 
-def _check_can_submit(community_id):
+def _check_can_curate_for_community(community_id):
     """Return True if the current user is a curator, manager, or owner of the community."""
     try:
         identity = g.identity
@@ -149,6 +153,14 @@ def get_ep_approval_state(record_ui, record=None):
     # Early exit: this IS the public EP-approved copy.
     # The public record's parent has source_internal_version set.
     if ea.get("source_internal_version"):
+        default_community_id = (
+            (record_ui or {}).get("parent", {}).get("communities", {}).get("default")
+        )
+        can_view_reviewed_version = (
+            _check_can_curate_for_community(default_community_id)
+            if default_community_id
+            else False
+        )
         return {
             "can_submit": False,
             "can_create_public": False,
@@ -159,6 +171,7 @@ def get_ep_approval_state(record_ui, record=None):
             "approval_date": None,
             "ep_approval": ea,
             "draft_record_id": ea["source_internal_version"],
+            "can_view_reviewed_version": can_view_reviewed_version,
             "receiver_group": None,
             "cern_scientific_community_id": None,
         }
@@ -176,6 +189,7 @@ def get_ep_approval_state(record_ui, record=None):
             "approval_date": None,
             "ep_approval": {},
             "draft_record_id": None,
+            "can_view_reviewed_version": False,
             "receiver_group": None,
         }
 
@@ -189,7 +203,7 @@ def get_ep_approval_state(record_ui, record=None):
         pass
 
     open_request = _get_open_request(record_id, parent_record)
-    can_submit = _check_can_submit(community_id)
+    can_submit = _check_can_curate_for_community(community_id)
     approved_report_number = ea.get("reportnumber")
     can_create_public = _check_can_create_public(can_submit, ea, record_id)
 
@@ -207,6 +221,7 @@ def get_ep_approval_state(record_ui, record=None):
         "approval_date": ea.get("datetime"),
         "ep_approval": ea,
         "draft_record_id": None,
+        "can_view_reviewed_version": False,
         "receiver_group": community_config.get("referee_group"),
         "cern_scientific_community_id": cern_scientific_community_id,
     }
