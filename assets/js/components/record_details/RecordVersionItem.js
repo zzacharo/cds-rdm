@@ -1,5 +1,5 @@
 import React, { useMemo } from "react";
-import { Icon, List } from "semantic-ui-react";
+import { Icon, Label, List } from "semantic-ui-react";
 import { i18next } from "@translations/invenio_app_rdm/i18next";
 import PropTypes from "prop-types";
 import { CopyButton } from "@js/invenio_app_rdm/components/CopyButton";
@@ -24,18 +24,15 @@ export const RecordVersionItemContent = ({ item, activeVersion, doi }) => {
   const ea = epApproval?.ep_approval || {};
   const approvedReportNumber = ea.reportnumber;
   // approved_internal_version: recid of the version that was submitted and approved.
-  const isApprovedVersion = !!approvedReportNumber && ea.approved_internal_version === item.id;
+  const isApprovedVersion =
+    !!approvedReportNumber && ea.approved_internal_version === item.id;
   // source_public_version: recid of the internal version used to create the public record.
   const publicRecordId = ea.approved_public_version;
-  const isPublicSourceVersion = !!publicRecordId && ea.source_public_version === item.id;
+
+  const isPublicSourceVersion =
+    !!publicRecordId && ea.source_public_version === item.id;
   // If approved and public-source are the same version, show only the public record link.
   const sameVersion = isApprovedVersion && isPublicSourceVersion;
-
-  // --- Public record side ---
-  // is_public_approved_record is set when viewing the public copy.
-  // draft_record_id links back to the internal draft it was created from.
-  const isPublicRecord = epApproval?.is_public_approved_record;
-  const draftRecordId = epApproval?.draft_record_id;
 
   return (
     <List.Item key={item.id} {...(activeVersion && { className: "version active" })}>
@@ -75,18 +72,6 @@ export const RecordVersionItemContent = ({ item, activeVersion, doi }) => {
             >
               <Icon name="external alternate" size="small" />
               {approvedReportNumber}
-            </a>
-          </>
-        )}
-
-        {/* Public record: show "Reviewed version" link only to users who can
-            edit the record (record owner, community managers/owners). */}
-        {isPublicRecord && epApproval?.can_view_reviewed_version && item.version === "v1" && draftRecordId && (
-          <>
-            {" "}
-            <a href={`/records/${draftRecordId}`} className="text-muted-darken">
-              <Icon name="external alternate" size="small" />
-              {i18next.t("Reviewed version")}
             </a>
           </>
         )}

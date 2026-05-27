@@ -5,7 +5,16 @@
 // under the terms of the GPL-2.0 License; see LICENSE file for more details.
 
 import React, { Component } from "react";
-import { Button, Divider, Grid, Header, Icon, Message, Modal } from "semantic-ui-react";
+import {
+  Button,
+  Divider,
+  Grid,
+  Header,
+  Icon,
+  Message,
+  Modal,
+  Step,
+} from "semantic-ui-react";
 import { i18next } from "@translations/invenio_app_rdm/i18next";
 import { EPApprovalSubmitModal } from "./EPApprovalSubmitModal";
 import { CreatePublicRecordModal } from "./CreatePublicRecordModal";
@@ -23,9 +32,10 @@ export class EPApprovalManageSection extends Component {
       submitModalOpen: false,
       createPublicModalOpen: false,
       newVersionModalOpen: false,
-      // Tracks the public record id after creation (optimistic UI update).
+      // Tracks the public record id/url after creation (optimistic UI update).
       // can_create_public from backend already handles the case where one exists.
       publicRecordId: null,
+      publicRecordUrl: null,
     };
 
     this._newVersionClickHandler = null;
@@ -102,7 +112,10 @@ export class EPApprovalManageSection extends Component {
   };
 
   handlePublicRecordCreated = (publicRecord) => {
-    this.setState({ publicRecordId: publicRecord.id });
+    this.setState({
+      publicRecordId: publicRecord.id,
+      publicRecordUrl: publicRecord.links?.self_html || null,
+    });
   };
 
   render() {
@@ -112,6 +125,7 @@ export class EPApprovalManageSection extends Component {
       createPublicModalOpen,
       newVersionModalOpen,
       publicRecordId,
+      publicRecordUrl,
     } = this.state;
     const { record } = this.props;
 
@@ -119,9 +133,36 @@ export class EPApprovalManageSection extends Component {
       return null;
     }
 
-    // Public EP-approved record — nothing to manage here; sidebar shows the draft link.
+    // Public EP-approved record — show a compact provenance note.
     if (epApproval.is_public_approved_record) {
-      return null;
+      const {
+        approved_report_number: pubRn,
+        draft_record_id,
+        can_view_reviewed_version,
+      } = epApproval;
+      return (
+        <Grid.Column className="pb-20 pt-0">
+          <Message size="small" positive>
+            <Icon name="check circle" />
+            {pubRn
+              ? i18next.t("EP-approved as {{rn}}", { rn: pubRn })
+              : i18next.t("EP-approved record")}
+            {can_view_reviewed_version && draft_record_id && (
+              <>
+                {" · "}
+                <a
+                  href={`/records/${draft_record_id}`}
+                  target="_blank"
+                  rel="noreferrer"
+                >
+                  {i18next.t("Review history")}
+                  <Icon name="external alternate" className="ml-5" />
+                </a>
+              </>
+            )}
+          </Message>
+        </Grid.Column>
+      );
     }
 
     const {
@@ -130,7 +171,16 @@ export class EPApprovalManageSection extends Component {
       open_request,
       approved_report_number,
       receiver_group,
+      ep_approval,
     } = epApproval;
+
+    // Public record URL: prefer the URL captured at creation time; fall back to
+    // the recid stored on the parent (approved_public_version) for page-load case.
+    const resolvedPublicRecordUrl =
+      publicRecordUrl ||
+      (ep_approval?.approved_public_version
+        ? `/records/${ep_approval.approved_public_version}`
+        : null);
 
     const isPending = open_request?.status === "submitted";
     const isDeclined = open_request?.status === "declined";
@@ -143,131 +193,214 @@ export class EPApprovalManageSection extends Component {
     // eligibility (only versions >= the approved version may create a public record).
     const canCreatePublic = can_create_public && !publicRecordId;
 
+    const requestLink =
+      open_request?.links?.self_html ||
+      (open_request?.id ? `/requests/${open_request.id}` : null);
+
+    // Timeline step states
+    // Step 1 — Request for approval
+    const step1Completed = !!approved_report_number;
+    const step1Active = !step1Completed && !isPending;
+
+    // Step 2 — EP Board review
+    const step2Completed = !!approved_report_number;
+    const step2Active = isPending;
+    const step2Disabled = !isPending && !step2Completed;
+
+    // Step 3 — Create final public version
+    const step3Completed = step2Completed && !canCreatePublic;
+    const step3Active = step2Completed && canCreatePublic;
+    const step3Disabled = !step2Completed;
+
     return (
       <Grid.Column className="pb-20 pt-0">
         <Divider horizontal>
-          <Header as="h4">{i18next.t("Manage Publication")}</Header>
+          <Header as="h4">{i18next.t("Approval request workflow")}</Header>
         </Divider>
 
-        {/* Accepted — show approved report number (linked to the request) + create or view public record */}
-        {approved_report_number && (
-          <>
-            {(() => {
-              const requestLink =
-                open_request?.links?.self_html ||
-                (open_request?.id ? `/requests/${open_request.id}` : null);
-              return requestLink ? (
-                <Message success size="small" className="mb-5">
-                  <Message.Content className="text-align-center">
-                    <a
-                      href={requestLink}
-                      target="_blank"
-                      rel="noreferrer"
-                    >
-                      {i18next.t("See approved request for {{rn}}", {
-                        rn: approved_report_number,
-                      })}
-                      <Icon name="external alternate" className="ml-5" />
-                    </a>
-                  </Message.Content>
-                </Message>
-              ) : (
-                <p className="mb-5 text-align-center">
-                  {i18next.t("Approved as {{rn}}", { rn: approved_report_number })}
-                </p>
-              );
-            })()}
-            {!publicRecordId && canCreatePublic && (
-              <>
-                <Button
-                  fluid
-                  primary
-                  size="medium"
-                  icon="world"
-                  labelPosition="left"
-                  content={i18next.t("Create public approved record")}
-                  onClick={() => this.setState({ createPublicModalOpen: true })}
-                  className="mb-5"
-                />
-                <CreatePublicRecordModal
-                  open={createPublicModalOpen}
-                  record={record}
-                  approvedReportNumber={approved_report_number}
-                  onClose={() => this.setState({ createPublicModalOpen: false })}
-                  onSuccess={this.handlePublicRecordCreated}
-                />
-              </>
-            )}
-          </>
-        )}
-
-        {/* Pending — link to the open request */}
-        {isPending && (
-          <Message warning size="small" className="mb-5">
-            <Message.Content className="text-align-center">
-              {i18next.t("Document requested for approval")}
-              {open_request.links?.self_html && (
-                <>
-                  {" "}
-                  <a
-                    href={open_request.links.self_html}
-                    target="_blank"
-                    rel="noreferrer"
-                  >
-                    {i18next.t("View request")}
-                    <Icon name="external alternate" className="ml-5" />
-                  </a>
-                </>
-              )}
-            </Message.Content>
-          </Message>
-        )}
-
-        {/* Declined — warning message + link to request + allow re-submission */}
-        {isDeclined && (
-          <Message warning size="small" className="mb-5">
-            <Message.Content className="text-align-center">
-              {i18next.t("The approval request was declined.")}
-              {open_request.links?.self_html && (
-                <>
-                  {" "}
-                  <a
-                    href={open_request.links.self_html}
-                    target="_blank"
-                    rel="noreferrer"
-                  >
-                    {i18next.t("View request")}
-                    <Icon name="external alternate" className="ml-5" />
-                  </a>
-                </>
-              )}
-            </Message.Content>
-          </Message>
-        )}
-
-        {/* Submit / re-submit button */}
-        {canResubmit && (
-          <>
-            <Button
-              fluid
-              positive
-              size="medium"
-              onClick={() => this.setState({ submitModalOpen: true })}
-              className="mb-5"
+        <Step.Group vertical fluid size="mini">
+          {/* Step 1 — Request for approval */}
+          <Step completed={step1Completed} active={step1Active}>
+            <Step.Content
+              style={{
+                display: "flex",
+                justifyContent: "space-between",
+                alignItems: "center",
+                width: "100%",
+              }}
             >
-              {isDeclined
-                ? i18next.t("Request approval again")
-                : i18next.t("Request approval of this document")}
-            </Button>
-            <EPApprovalSubmitModal
-              open={submitModalOpen}
-              record={record}
-              receiverGroup={receiver_group}
-              onClose={() => this.setState({ submitModalOpen: false })}
-              onSuccess={this.handleSubmitSuccess}
-            />
-          </>
-        )}
+              <div>
+                <Step.Title>
+                  <Icon
+                    name={step1Completed ? "check circle" : "paper plane outline"}
+                    color={step1Completed ? "green" : step1Active ? "blue" : "grey"}
+                    size="small"
+                  />
+                  {i18next.t("Request for approval")}
+                </Step.Title>
+                <Step.Description>
+                  {isDeclined ? (
+                    <>
+                      {i18next.t("Request was declined.")}
+                      {requestLink && (
+                        <>
+                          {" "}
+                          <a href={requestLink} target="_blank" rel="noreferrer">
+                            {i18next.t("View")}
+                            <Icon name="external alternate" className="ml-5" />
+                          </a>
+                        </>
+                      )}
+                    </>
+                  ) : step1Completed ? (
+                    i18next.t("Request submitted.")
+                  ) : (
+                    i18next.t("Submit the document for EP committee review.")
+                  )}
+                </Step.Description>
+              </div>
+              {canResubmit && (
+                <Button
+                  positive
+                  size="mini"
+                  onClick={() => this.setState({ submitModalOpen: true })}
+                >
+                  {isDeclined
+                    ? i18next.t("Request again")
+                    : i18next.t("Request approval")}
+                </Button>
+              )}
+            </Step.Content>
+            {canResubmit && (
+              <EPApprovalSubmitModal
+                open={submitModalOpen}
+                record={record}
+                receiverGroup={receiver_group}
+                onClose={() => this.setState({ submitModalOpen: false })}
+                onSuccess={this.handleSubmitSuccess}
+              />
+            )}
+          </Step>
+
+          {/* Step 2 — EP Board review */}
+          <Step
+            completed={step2Completed}
+            active={step2Active}
+            disabled={step2Disabled}
+          >
+            <Step.Content
+              style={{
+                display: "flex",
+                justifyContent: "space-between",
+                alignItems: "center",
+                width: "100%",
+              }}
+            >
+              <div>
+                <Step.Title>
+                  <Icon
+                    name={step2Completed ? "check circle" : "clock outline"}
+                    color={step2Completed ? "green" : step2Active ? "blue" : "grey"}
+                    size="small"
+                  />
+                  {i18next.t("EP Board review")}
+                </Step.Title>
+                <Step.Description>
+                  {step2Completed ? (
+                    requestLink ? (
+                      <a href={requestLink} target="_blank" rel="noreferrer">
+                        {i18next.t("Approved as {{rn}}", {
+                          rn: approved_report_number,
+                        })}
+                        <Icon name="external alternate" className="ml-5" />
+                      </a>
+                    ) : (
+                      i18next.t("Approved as {{rn}}", { rn: approved_report_number })
+                    )
+                  ) : (
+                    i18next.t("The EP secretariat will review the submission.")
+                  )}
+                </Step.Description>
+              </div>
+              {step2Active && requestLink && (
+                <Button
+                  as="a"
+                  size="mini"
+                  href={requestLink}
+                  target="_blank"
+                  rel="noreferrer"
+                >
+                  {i18next.t("View request")}
+                  <Icon name="external alternate" className="ml-5" />
+                </Button>
+              )}
+            </Step.Content>
+          </Step>
+
+          {/* Step 3 — Create final public version */}
+          <Step
+            completed={step3Completed}
+            active={step3Active}
+            disabled={step3Disabled}
+          >
+            <Step.Content
+              style={{
+                display: "flex",
+                justifyContent: "space-between",
+                alignItems: "center",
+                width: "100%",
+              }}
+            >
+              <div>
+                <Step.Title>
+                  <Icon
+                    name={step3Completed ? "check circle" : "world"}
+                    color={step3Completed ? "green" : step3Active ? "blue" : "grey"}
+                    size="small"
+                  />
+                  {i18next.t("Create final public version")}
+                </Step.Title>
+                <Step.Description>
+                  {step3Completed ? (
+                    resolvedPublicRecordUrl ? (
+                      <a
+                        href={resolvedPublicRecordUrl}
+                        target="_blank"
+                        rel="noreferrer"
+                      >
+                        {i18next.t("View public record")}
+                        <Icon name="external alternate" className="ml-5" />
+                      </a>
+                    ) : (
+                      i18next.t("Public record created.")
+                    )
+                  ) : (
+                    i18next.t("Publish the EP-approved record publicly on CDS.")
+                  )}
+                </Step.Description>
+              </div>
+              {step3Active && (
+                <Button
+                  primary
+                  size="mini"
+                  onClick={() => this.setState({ createPublicModalOpen: true })}
+                >
+                  {i18next.t("Publish")}
+                </Button>
+              )}
+            </Step.Content>
+            {step3Active && (
+              <CreatePublicRecordModal
+                open={createPublicModalOpen}
+                record={record}
+                approvedReportNumber={approved_report_number}
+                onClose={() => this.setState({ createPublicModalOpen: false })}
+                onSuccess={this.handlePublicRecordCreated}
+              />
+            )}
+          </Step>
+        </Step.Group>
+
         {/* New-version warning modal — shown when user clicks "New version" while a request is pending */}
         <Modal
           open={newVersionModalOpen}
